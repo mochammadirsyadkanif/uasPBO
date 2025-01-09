@@ -37,7 +37,11 @@ enemy_car_images = [
 ]
 enemy_car_images = [pygame.transform.scale(img, (CAR_WIDTH, CAR_HEIGHT)) for img in enemy_car_images]
 
-# Memuat suara mobil berjalan
+# Memuat gambar pohon
+tree_image = pygame.image.load('tree.png')
+tree_image = pygame.transform.scale(tree_image, (40, 60))
+
+# suara mobil
 car_engine_sound = pygame.mixer.Sound('car_engine.mp3')
 car_engine_sound.set_volume(2.5)  # Sesuaikan volume suara (0.0 - 1.0)
 
@@ -61,6 +65,10 @@ class Vehicle:
 class PlayerCar(Vehicle):
     def __init__(self, x, y, width, height, speed):
         super().__init__(x, y, width, height, speed, player_car_image)
+        self.lights_on = False
+
+    def toggle_lights(self, is_night):
+        self.lights_on = is_night
 
     def move(self, keys):
         if keys[pygame.K_LEFT] and self.x > BORDER_WIDTH:
@@ -74,17 +82,47 @@ class PlayerCar(Vehicle):
 
     def draw(self):
         screen.blit(self.image, (self.x, self.y))
+        if self.lights_on:
+            # Menggambar lampu mobil
+            light_color = (255, 255, 100)  # Warna lampu kuning terang
+            pygame.draw.polygon(screen, light_color, [
+                (self.x + 10, self.y),
+                (self.x - 20, self.y - 50),
+                (self.x + self.width // 2, self.y - 50)
+            ])
+            pygame.draw.polygon(screen, light_color, [
+                (self.x + self.width - 10, self.y),
+                (self.x + self.width + 20, self.y - 50),
+                (self.x + self.width // 2, self.y - 50)
+            ])
 
 # Class kendaraan musuh
 class EnemyCar(Vehicle):
     def __init__(self, x, y, width, height, speed, image):
         super().__init__(x, y, width, height, speed, image)
+        self.lights_on = False
+
+    def toggle_lights(self, is_night):
+        self.lights_on = is_night
 
     def move(self):
         self.y += self.speed
 
     def draw(self):
         screen.blit(self.image, (self.x, self.y))
+        if self.lights_on:
+            # Menggambar lampu mobil musuh di depan
+            light_color = (255, 100, 100)  # Warna lampu merah terang
+            pygame.draw.polygon(screen, light_color, [
+                (self.x + 10, self.y),
+                (self.x - 20, self.y - 50),
+                (self.x + self.width // 2, self.y - 50)
+            ])
+            pygame.draw.polygon(screen, light_color, [
+                (self.x + self.width - 10, self.y),
+                (self.x + self.width + 20, self.y - 50),
+                (self.x + self.width // 2, self.y - 50)
+            ])
 
 # Class Game
 class Game:
@@ -99,6 +137,8 @@ class Game:
         self.enemy_spawn_rate = 2
         self.max_enemies = 5
         self.mark_offset = 0  # Offset untuk menggerakkan garis tengah
+        self.tree_offset = 0  # Offset untuk pergerakan pohon
+        self.background_speed = 5  # Kecepatan awal untuk pohon dan garis
 
     def create_enemy(self):
         if len(self.enemies) < self.max_enemies:
@@ -106,7 +146,12 @@ class Game:
                 enemy_lane = random.choice(LANES)  # Pilih jalur acak
                 enemy_speed = random.randint(3, 7) + self.level * self.enemy_speed_increase
                 enemy_image = random.choice(enemy_car_images if self.level % 2 == 0 else enemy_car_images[2:])  # Pilih gambar musuh sesuai level
+                # Pastikan tidak ada musuh lain di jalur yang sama
+                for enemy in self.enemies:
+                    if abs(enemy.x - enemy_lane) < CAR_WIDTH and abs(enemy.y + CAR_HEIGHT) < CAR_HEIGHT * 2:
+                        return
                 enemy = EnemyCar(enemy_lane, -CAR_HEIGHT, CAR_WIDTH, CAR_HEIGHT, enemy_speed, enemy_image)
+                enemy.toggle_lights(self.level % 2 == 0)  # Nyalakan lampu saat malam
                 self.enemies.append(enemy)
 
     def update(self):
@@ -125,11 +170,23 @@ class Game:
             self.level += 1
             self.max_enemies += 1  # Tambahkan jumlah musuh
             self.enemy_speed_increase += 0.5  # Tingkatkan kecepatan musuh
+            self.background_speed += 2  # Percepat pohon dan garis tengah
 
         # Update posisi mark jalan
-        self.mark_offset += 5
+        self.mark_offset += self.background_speed
         if self.mark_offset >= 40:
             self.mark_offset = 0
+
+        # Update posisi pohon
+        self.tree_offset += self.background_speed
+        if self.tree_offset >= 100:
+            self.tree_offset = 0
+
+        # Atur lampu berdasarkan waktu malam atau siang
+        is_night = self.level % 2 == 0
+        self.player.toggle_lights(is_night)
+        for enemy in self.enemies:
+            enemy.toggle_lights(is_night)
 
     def draw_road(self):
         if self.level == 2:
@@ -150,9 +207,15 @@ class Game:
         pygame.draw.rect(screen, WHITE, (BORDER_WIDTH, 0, BORDER_WIDTH, SCREEN_HEIGHT))
         pygame.draw.rect(screen, WHITE, (SCREEN_WIDTH - BORDER_WIDTH, 0, BORDER_WIDTH, SCREEN_HEIGHT))
 
+    def draw_trees(self):
+        for i in range(-100, SCREEN_HEIGHT, 100):
+            screen.blit(tree_image, (BORDER_WIDTH // 2 - tree_image.get_width() // 2, i + self.tree_offset))
+            screen.blit(tree_image, (SCREEN_WIDTH - BORDER_WIDTH // 2 - tree_image.get_width() // 2, i + self.tree_offset))
+
     def draw(self):
         screen.fill((0, 0, 0))
         self.draw_road()
+        self.draw_trees()
         self.player.draw()
         for enemy in self.enemies:
             enemy.draw()
@@ -184,9 +247,9 @@ class Game:
                         return False
 
     def main_menu(self):
-        font = pygame.font.SysFont("Arial", 50)
-        title_text = font.render("MOBIL HINDARI TABRAKAN", True, WHITE)
-        start_text = pygame.font.SysFont("Arial", 30).render("Press ENTER to Start", True, WHITE)
+        font = pygame.font.SysFont("GROBOLD.ttf", 50)
+        title_text = font.render("Highway Dodge", True, WHITE)
+        start_text = pygame.font.SysFont("GROBOLD.ttf", 30).render("Press ENTER to Start", True, WHITE)
         running = True
         while running:
             screen.fill((0, 0, 0))
